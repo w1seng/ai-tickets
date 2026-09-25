@@ -65,6 +65,10 @@ Do not invent facts. Never turn an unfamiliar word into the name of a city, prod
 - low: general questions, pre-purchase questions, suggestions, feedback, thanks — only when nothing suggests a malfunction or a problem with an order or payment.
 When a ticket fits several levels, choose the highest one that applies.
 Tickets in the question and feedback categories are usually low. Tickets in the complaint category are at least medium.
+Technical problems:
+- high — a blocking problem: the customer cannot use the service at all, cannot place an order, pay, or log in ("нічого не працює", "не можу оплатити", "сайт не відкривається", "не можу увійти").
+- medium — a partial problem: something works badly but the service is still usable ("лагає", "повільно вантажиться", "кнопка іноді не натискається").
+- If the text does not make clear whether the problem is blocking, choose medium.
 
 ## Category
 ${CATEGORY_LIST}

@@ -60,6 +60,8 @@ const samples: Sample[] = [
     customerName: "Вася",
     message: "Кароче пацани полетів софт",
     expectedCategory: "technical",
+    // З тексту неясно, чи проблема блокуюча → medium.
+    expectedPriority: "medium",
   },
   {
     label: "Сленг: все лагає",
@@ -123,6 +125,7 @@ const samples: Sample[] = [
     customerName: "Максим",
     message: "Не можу оплатити, сайт видає помилку",
     expectedCategory: "technical",
+    expectedPriority: "high",
   },
   {
     label: "Спірне: третє звернення без відповіді",
@@ -142,6 +145,22 @@ const samples: Sample[] = [
     message:
       "Це просто жах!!! Замовив навушники, прийшли з тріснутим корпусом і не заряджаються. Підтримка два дні ігнорує. Якщо сьогодні не повернете гроші — піду в суд і напишу скрізь, який ви шахрайський магазин!",
     expectedCategory: "refund",
+  },
+
+  // --- Пріоритет технічних проблем ---
+  {
+    label: "Технічне, блокуюче: нічого не працює",
+    customerName: "Богдан",
+    message: "Все поломано нічого не працює",
+    expectedCategory: "technical",
+    expectedPriority: "high",
+  },
+  {
+    label: "Технічне, часткове: трохи лагає",
+    customerName: "Леся",
+    message: "Сайт трохи лагає, але працює",
+    expectedCategory: "technical",
+    expectedPriority: "medium",
   },
 
   // --- Назви сервісів і місць ---
