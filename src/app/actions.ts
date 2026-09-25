@@ -1,9 +1,12 @@
 "use server";
 
+import Anthropic from "@anthropic-ai/sdk";
+import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/db";
 import { tickets } from "@/db/schema";
+import { AnalysisError, analyzeMessage } from "@/lib/analyze";
 
 const ticketSchema = z.object({
   customerName: z
@@ -57,6 +60,71 @@ export async function createTicket(
       errors: { form: "Не вдалося зберегти звернення. Спробуйте ще раз." },
       values,
     };
+  }
+
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export type AnalyzeTicketResult = { ok: true } | { ok: false; error: string };
+
+function analysisErrorMessage(error: unknown): string {
+  if (error instanceof AnalysisError) {
+    return "AI повернув некоректну відповідь. Спробуйте ще раз.";
+  }
+  if (error instanceof Anthropic.APIConnectionTimeoutError) {
+    return "AI не відповів вчасно. Спробуйте ще раз.";
+  }
+  if (error instanceof Anthropic.APIConnectionError) {
+    return "Немає з’єднання з AI-сервісом. Спробуйте пізніше.";
+  }
+  if (error instanceof Anthropic.RateLimitError) {
+    return "Забагато запитів до AI. Зачекайте хвилину і спробуйте ще раз.";
+  }
+  if (
+    error instanceof Anthropic.AuthenticationError ||
+    error instanceof Anthropic.PermissionDeniedError
+  ) {
+    return "Помилка доступу до AI-сервісу. Перевірте налаштування ключа API.";
+  }
+  if (error instanceof Anthropic.APIError && error.status !== undefined && error.status >= 500) {
+    return "AI-сервіс тимчасово недоступний. Спробуйте пізніше.";
+  }
+  return "Не вдалося проаналізувати звернення. Спробуйте ще раз.";
+}
+
+export async function analyzeTicket(id: number): Promise<AnalyzeTicketResult> {
+  const parsedId = z.number().int().positive().safeParse(id);
+  if (!parsedId.success) {
+    return { ok: false, error: "Некоректний ідентифікатор звернення." };
+  }
+
+  try {
+    const [ticket] = await db
+      .select({ customerName: tickets.customerName, message: tickets.message })
+      .from(tickets)
+      .where(eq(tickets.id, parsedId.data))
+      .limit(1);
+
+    if (!ticket) {
+      return { ok: false, error: "Звернення не знайдено." };
+    }
+
+    const analysis = await analyzeMessage(ticket.customerName, ticket.message);
+
+    await db
+      .update(tickets)
+      .set({
+        priority: analysis.priority,
+        category: analysis.category,
+        summary: analysis.summary,
+        draftReply: analysis.draftReply,
+        analyzedAt: sql`now()`,
+      })
+      .where(eq(tickets.id, parsedId.data));
+  } catch (error) {
+    console.error(`analyzeTicket(${parsedId.data}) failed`, error);
+    return { ok: false, error: analysisErrorMessage(error) };
   }
 
   revalidatePath("/");
