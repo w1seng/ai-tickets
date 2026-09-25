@@ -9,7 +9,7 @@ const samples: { label: string; customerName: string; message: string }[] = [
   },
   {
     label: "Запит про доставку",
-    customerName: "Андрій",
+    customerName: "Василь",
     message:
       "Підкажіть, будь ласка, скільки зазвичай іде доставка Новою поштою до Львова? Хочу замовити подарунок до п’ятниці.",
   },
