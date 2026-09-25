@@ -1,4 +1,4 @@
-import type { Ticket } from "@/db/schema";
+import type { Category, Priority, Ticket } from "@/db/schema";
 import AnalyzeButton from "@/components/AnalyzeButton";
 import CopyButton from "@/components/CopyButton";
 
@@ -7,9 +7,6 @@ const dateFormatter = new Intl.DateTimeFormat("uk-UA", {
   timeStyle: "short",
   timeZone: "Europe/Kyiv",
 });
-
-type Priority = NonNullable<Ticket["priority"]>;
-type Category = NonNullable<Ticket["category"]>;
 
 const PRIORITY: Record<Priority, { label: string; className: string }> = {
   low: {
@@ -31,8 +28,14 @@ const PRIORITY: Record<Priority, { label: string; className: string }> = {
 
 const CATEGORY_LABELS: Record<Category, string> = {
   payment: "Оплата",
+  refund: "Повернення та обмін",
   delivery: "Доставка",
-  complaint: "Скарга",
+  order: "Замовлення",
+  product: "Товар",
+  technical: "Технічна проблема",
+  complaint: "Скарга на сервіс",
+  question: "Консультація",
+  feedback: "Відгук / пропозиція",
   other: "Інше",
 };
 

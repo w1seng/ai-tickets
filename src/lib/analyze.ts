@@ -2,12 +2,34 @@
 // Захист секретів забезпечують actions.ts ("use server") і src/db (server-only).
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { CATEGORIES, PRIORITIES, type Category } from "../db/schema";
 
-const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
+export const DEFAULT_MODEL = "claude-sonnet-5";
 const TOOL_NAME = "save_analysis";
 
-export const PRIORITIES = ["low", "medium", "high"] as const;
-export const CATEGORIES = ["payment", "delivery", "complaint", "other"] as const;
+// Опис кожної категорії: використовується і в системному промпті, і в input_schema інструмента.
+const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
+  payment:
+    "problems with the payment itself: charged without an order being created, double charge, payment errors or declines, invoices, receipts, installments",
+  refund:
+    "the customer wants to return an item or get money back for a purchase, or exchange it for another size or model",
+  delivery:
+    "a problem with an existing shipment: delay, tracking, changing the delivery address, the courier did not come, the parcel has not arrived",
+  order:
+    "an existing order: its status, changing or cancelling it, an order that was paid but not shipped, missing items in the package",
+  product:
+    "the item itself: defect, damage, does not match the description or photos — when the customer describes the problem or asks what to do, without asking for a return or refund",
+  technical:
+    "the website or app: errors, crashes, slowness (\"все лагає\"), cannot log in, password reset, cannot complete checkout or payment because of a site error",
+  complaint:
+    "the essence of the ticket is a complaint about the service itself, with no other concrete demand: rude staff or courier, being ignored, repeated unanswered requests, long waiting for a reply",
+  question:
+    "a consultation before or outside a problem: availability, product characteristics, loyalty program, available payment or delivery methods, and delivery questions before ordering (delivery times, cost, whether we deliver to a city)",
+  feedback: "thanks, ideas, suggestions, wishes",
+  other: "anything that does not fit any category above",
+};
+
+const CATEGORY_LIST = CATEGORIES.map((key) => `- ${key}: ${CATEGORY_DESCRIPTIONS[key]}.`).join("\n");
 
 export const analysisSchema = z.object({
   priority: z.enum(PRIORITIES),
@@ -30,28 +52,46 @@ const SYSTEM_PROMPT = `You are a support assistant for an online store. Your job
 
 Always respond by calling the ${TOOL_NAME} tool exactly once.
 
+## Reading the ticket
+Customers often write briefly and informally: slang, typos, no punctuation, surzhyk (mixed Ukrainian and Russian), casual address like "пацани". Interpret the meaning, not the form. For example, "полетів софт", "все лагає", "нічого не грузиться", "не пашить", "глючить", "вилітає" all describe a technical malfunction — not an empty message or a ticket without a request. Work out what most likely went wrong and treat it as a real problem.
+
 ## Priority
 - high: the customer was charged but got nothing (no order, no service, or a double charge); the item was not received or arrived damaged or defective; the customer threatens to leave, cancel, dispute the charge, or take legal action; the tone is sharply negative or angry.
-- medium: a real problem that needs action but is not urgent (a delay within reasonable limits, a question about an existing order, a minor defect, a refund request with no signs of urgency).
-- low: general questions, pre-purchase questions, suggestions, feedback, thanks.
+- medium: a real problem that needs action but is not urgent (a delay within reasonable limits, a question about an existing order, a minor defect, a refund request with no signs of urgency). Any report that something is broken or not working — even a very short, vague or slangy one — is at least medium.
+- low: general questions, pre-purchase questions, suggestions, feedback, thanks — only when nothing suggests a malfunction or a problem with an order or payment.
 When a ticket fits several levels, choose the highest one that applies.
+Tickets in the question and feedback categories are usually low. Tickets in the complaint category are at least medium.
 
 ## Category
-- payment: payments, charges, refunds, invoices, receipts, payment methods.
-- delivery: shipping, delivery times, tracking, couriers, lost or delayed parcels.
-- complaint: complaints about product quality or about service/staff behavior.
-- other: anything else.
-If a ticket touches several topics, choose the one that best describes the customer's main problem.
+${CATEGORY_LIST}
+
+The main principle: the category is decided by WHAT THE CUSTOMER WANTS US TO DO, not by the topic the ticket mentions. Rules for borderline cases:
+- A damaged or defective item and the customer asks for their money back or a return/exchange → refund. The same problem where the customer only describes it or asks what to do → product. ("Прийшла розбита чашка, поверніть гроші" → refund; "Прийшла розбита чашка, що робити?" → product.)
+- Money was charged but no order was created, or it was charged twice → payment, even if the customer asks for the money back: the problem is a failed payment, not a return of a purchase.
+- The order exists and is paid but has not been shipped, or its status is unclear → order. ("Оплатила, замовлення є, але не відправлене" → order.)
+- The customer cannot pay or check out because the site or app shows an error → technical, not payment.
+- The courier was rude → complaint; the courier did not come or the parcel is late → delivery.
+- A delivery question before ordering (how long delivery takes, how much it costs, whether we deliver to a city) → question; a problem with an existing shipment → delivery. ("Скільки йде доставка до Львова? Хочу замовити подарунок" → question; "Посилка вже тиждень не рухається" → delivery.)
+- If the customer makes a concrete demand (a refund, return, exchange, cancellation), the category is decided by that demand, even if the customer also complains about being ignored or writes angrily; being ignored and a sharp tone are reflected in a high priority instead. ("Навушники прийшли зламані, підтримка ігнорує, поверніть гроші" → refund, high.)
+- complaint is for tickets whose essence is a complaint about the service with no other concrete demand. ("Це вже третє звернення, мені ніхто не відповідає" → complaint.)
+- Use other only when no other category fits.
 
 ## summary
 Exactly one short sentence in Ukrainian that states the customer's main issue, regardless of the ticket's language.
 
 ## draftReply
 - Write in the same language as the ticket (Ukrainian ticket → Ukrainian reply, English → English, and so on).
-- Greeting: a Ukrainian reply must start with exactly "Вітаємо, <name in the vocative case>!" — e.g. "Вітаємо, Олено!", "Вітаємо, Андрію!", "Вітаємо, Василю!", "Вітаємо, Ігоре!". Never use "Привіт", "Привіте", "Добрий день" or diminutives (not "Васю", "Олю"); keep the name as given, only put it in the vocative case. For any other language, use a natural, polite greeting in that language with the customer's name (e.g. "Hello John,", "Dear Anna,").
+- Greeting: a Ukrainian reply must start with exactly "Вітаємо, <name in the vocative case>!". Never use "Привіт", "Привіте", "Добрий день" or similar.
+  - Use exactly the name the customer gave, only put it in the vocative case. Do not replace it with the full or a different form: "Вася" → "Васю" (NOT "Василю"), "Оля" → "Олю" (NOT "Ольго"), "Василь" → "Василю", "Андрій" → "Андрію", "Олена" → "Олено", "Ігор" → "Ігоре".
+  - If the name is unusual, not a personal name (a nickname, a company, initials, random characters), or you are not sure how to decline it, write just "Вітаємо!" without a name.
+  - For any other language, use a natural, polite greeting in that language with the customer's name as given (e.g. "Hello John,", "Dear Anna,"); if the name is unclear, greet without it.
 - Ukrainian replies and summaries must be in correct, natural literary Ukrainian: no Russian words or Russianisms (e.g. not "рады", "приймати міри", "на протязі", "вибачаюсь"), no word-for-word calques, no invented or misspelled words. Before finishing, reread the text and fix spelling, grammar and word choice.
-- Be polite, empathetic when there is a problem, and to the point: acknowledge the issue, state the next step, and say what the customer can expect. Keep it concise (roughly 60–150 words).
-- Never invent facts: no order numbers, dates, amounts, tracking numbers, deadlines, or promises of specific compensation. Where such details are needed, use placeholders in square brackets written in the reply's language, e.g. [номер замовлення], [дата доставки], [сума] or [order number], [delivery date], [amount].
+- Be polite, empathetic when there is a problem, and to the point: acknowledge the issue and state the next step. Keep it concise (roughly 60–150 words).
+- Ask for the specific details needed to resolve this particular problem, not generic ones. For a technical malfunction, ask e.g. which app/program or page, the device and OS or browser, what exactly happens (error text, freezes, crashes), since when, and whether it follows a specific action or update; a screenshot helps. For a payment problem, ask for the order number, payment date and method. For delivery — the order or tracking number.
+- Make no promises. The reply must not promise or offer refunds, compensation, discounts, replacements, or any specific resolution time or deadline (no "протягом 24 годин", "найближчими годинами", "гарантуємо"). This applies even when the customer demands a refund: acknowledge the request without committing to it. Do not send the customer to contact support — this reply already comes from support.
+- "We will check and report the next steps" (e.g. "Ми перевіримо ситуацію і повідомимо вас про подальші кроки.") is only for tickets with a problem that actually needs checking (a payment issue, a missing or damaged order, a malfunction, a complaint). For simple questions (loyalty program, payment methods, how something works) do not use this phrase: answer to the point with general information, or say where to find it, using a placeholder such as [посилання на сторінку програми лояльності] or [розділ «Оплата» на сайті].
+- Delivery: never name specific carriers or delivery services (Нова пошта, Укрпошта, Meest, DHL and so on) and never state delivery times or dates, even typical ones ("1–3 дні", "до п'ятниці встигне"), unless that exact fact is given in the ticket itself. Instead say that the delivery time depends on the delivery method and the customer's city and that the exact date will be shown when placing the order, e.g. "Термін доставки залежить від способу доставки та вашого міста, точну дату ви побачите під час оформлення замовлення." — or ask for the details needed (order number, city).
+- Never invent facts: no order numbers, dates, amounts, tracking numbers, or delivery times. Where such details are needed, use placeholders in square brackets written in the reply's language, e.g. [номер замовлення], [дата доставки], [сума] or [order number], [delivery date], [amount].
 - Structure the reply as separate paragraphs divided by one empty line (a blank line, i.e. "\n\n"):
   1. the greeting line on its own (e.g. "Вітаємо, Олено!");
   2. the main part — one or more short paragraphs;
@@ -77,8 +117,7 @@ const analysisTool: Anthropic.Tool = {
       category: {
         type: "string",
         enum: [...CATEGORIES],
-        description:
-          "Main topic: payment (payments, refunds, invoices), delivery (shipping, delivery times, tracking), complaint (quality of product or service), other (anything else).",
+        description: `What the customer wants us to do (not merely the topic mentioned). Categories:\n${CATEGORY_LIST}`,
       },
       summary: {
         type: "string",
@@ -87,7 +126,7 @@ const analysisTool: Anthropic.Tool = {
       draftReply: {
         type: "string",
         description:
-          "Polite draft reply to the customer in the same language as the ticket, with no invented facts; use square-bracket placeholders like [номер замовлення] for unknown details. Ukrainian replies start with \"Вітаємо, <name in the vocative case>!\" and are written in correct literary Ukrainian without Russianisms; other languages use a natural polite greeting with the name. Paragraphs separated by blank lines: greeting, main part, sign-off (\"З повагою,\\nСлужба підтримки\" or its equivalent in the reply's language).",
+          "Polite draft reply to the customer in the same language as the ticket, with no invented facts; use square-bracket placeholders like [номер замовлення] for unknown details. No promises of refunds, compensation, discounts or resolution times — say we will check and report the next steps. Ask for details specific to this problem. Ukrainian replies start with \"Вітаємо, <the customer's exact name in the vocative case>!\" (or \"Вітаємо!\" if the name is unclear) and are written in correct literary Ukrainian without Russianisms; other languages use a natural polite greeting with the name. Paragraphs separated by blank lines: greeting, main part, sign-off (\"З повагою,\\nСлужба підтримки\" or its equivalent in the reply's language).",
       },
     },
     required: ["priority", "category", "summary", "draftReply"],

@@ -8,6 +8,9 @@ import { db } from "@/db";
 import { tickets } from "@/db/schema";
 import { AnalysisError, analyzeMessage } from "@/lib/analyze";
 
+const MAX_TICKETS = 200;
+const ANALYZE_COOLDOWN_SECONDS = 10;
+
 const ticketSchema = z.object({
   customerName: z
     .string()
@@ -52,6 +55,15 @@ export async function createTicket(
   }
 
   try {
+    if ((await db.$count(tickets)) >= MAX_TICKETS) {
+      return {
+        ok: false,
+        errors: {
+          form: `Досягнуто ліміту в ${MAX_TICKETS} звернень. Нові звернення тимчасово не приймаються.`,
+        },
+        values,
+      };
+    }
     await db.insert(tickets).values(parsed.data);
   } catch (error) {
     console.error("createTicket failed", error);
@@ -101,13 +113,21 @@ export async function analyzeTicket(id: number): Promise<AnalyzeTicketResult> {
 
   try {
     const [ticket] = await db
-      .select({ customerName: tickets.customerName, message: tickets.message })
+      .select({
+        customerName: tickets.customerName,
+        message: tickets.message,
+        // Порівняння в БД: analyzed_at записується через now() бази, тож годинник сервера не впливає.
+        recentlyAnalyzed: sql<boolean>`coalesce(${tickets.analyzedAt} > now() - make_interval(secs => ${ANALYZE_COOLDOWN_SECONDS}), false)`,
+      })
       .from(tickets)
       .where(eq(tickets.id, parsedId.data))
       .limit(1);
 
     if (!ticket) {
       return { ok: false, error: "Звернення не знайдено." };
+    }
+    if (ticket.recentlyAnalyzed) {
+      return { ok: false, error: "Зачекайте кілька секунд перед повторним аналізом." };
     }
 
     const analysis = await analyzeMessage(ticket.customerName, ticket.message);
